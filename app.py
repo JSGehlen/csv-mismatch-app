@@ -33,12 +33,16 @@ def translate_with_deepl(text, api_key):
 st.set_page_config(layout="wide")
 st.title("🔁 Shopify Redirect Matcher (DeepL Version)")
 
+if "match_complete" not in st.session_state:
+    st.session_state.match_complete = False
+
 if "translated" not in st.session_state:
     st.session_state.translated = None
 if "matched" not in st.session_state:
     st.session_state.matched = None
 if "manual_results" not in st.session_state:
     st.session_state.manual_results = []
+
 
 # === Step 1: Upload + API key ===
 st.header("Step 1: Upload Files and Add DeepL API Key")
@@ -91,7 +95,7 @@ if broken_file and product_file and api_key:
         st.dataframe(broken_df[["clean_slug", "translated_guess"]].head(10))
 
 # === Step 3: Match Translations ===
-if st.session_state.translated is not None:
+if st.session_state.translated is not None and not st.session_state.match_complete:
     st.header("Step 3: Auto-Match Translated Titles")
 
     product_df['normalized_title'] = product_df['Product Title'].apply(normalize)
@@ -126,10 +130,12 @@ if st.session_state.translated is not None:
 
     unmatched_df = pd.DataFrame(unmatched)
     unmatched_df.columns = [col.strip() for col in unmatched_df.columns]
+
     st.session_state.matched = {
         "final": pd.DataFrame(matches),
         "unmatched": unmatched_df
     }
+    st.session_state.match_complete = True
 
     st.success(f"✅ Matched {len(matches)} | ❌ Unmatched: {len(unmatched)}")
 
