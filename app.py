@@ -29,10 +29,12 @@ def translate_with_deepl(text, api_key):
     except Exception as e:
         return f"TRANSLATION_FAILED: {e}"
 
-# === Session state defaults ===
+# === Streamlit Setup ===
 st.set_page_config(layout="wide")
 st.title("🔁 Shopify Redirect Matcher (DeepL Version)")
+st.caption(f"Running Streamlit {st.__version__}")
 
+# === Default session state ===
 for key, default in {
     "match_complete": False,
     "translated": None,
@@ -47,7 +49,7 @@ for key, default in {
     if key not in st.session_state:
         st.session_state[key] = default
 
-# === Step 1: Upload ===
+# === Step 1: Upload Files + API Key ===
 st.header("Step 1: Upload Files and Add DeepL API Key")
 col1, col2 = st.columns(2)
 with col1:
@@ -62,7 +64,7 @@ if broken_file and product_file and api_key:
     product_df = pd.read_csv(product_file)
     st.success("✅ Files and API key loaded!")
 
-    # === Step 2: Translate ===
+    # === Step 2: Translate Slugs ===
     st.header("Step 2: Translate German Slugs via DeepL")
     if st.button("Translate Now"):
         broken_df['slug'] = broken_df['Redirect from'].str.extract(r'/de/products/(.*)')
@@ -97,7 +99,7 @@ if broken_file and product_file and api_key:
         st.subheader("📄 Sample Translations:")
         st.dataframe(broken_df[["clean_slug", "translated_guess"]].head(10))
 
-# === Step 3: Match Translations (once) ===
+# === Step 3: Match Translations (once only) ===
 if st.session_state.translated is not None and not st.session_state.match_complete:
     st.header("Step 3: Auto-Match Translated Titles")
 
@@ -175,14 +177,17 @@ if st.session_state.matched is not None:
         choice = st.radio("Select a match or skip:", options + ["❌ Skip this one"])
 
         if st.button("Save & Next"):
-          if choice != "❌ Skip this one":
-              slug = choice.split("→")[-1].split("(")[0].strip()
-              st.session_state.manual_results.append({
-                  "Redirect from": redirect_from,
-                  "Redirect to": slug
-              })
-          st.session_state.manual_index += 1
-          st.rerun()
+            if choice != "❌ Skip this one":
+                slug = choice.split("→")[-1].split("(")[0].strip()
+                st.session_state.manual_results.append({
+                    "Redirect from": redirect_from,
+                    "Redirect to": slug
+                })
+            st.session_state.manual_index += 1
+            try:
+                st.rerun()
+            except AttributeError:
+                st.experimental_rerun()
     else:
         st.success("✅ Manual review complete!")
 
