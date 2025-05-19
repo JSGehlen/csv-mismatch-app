@@ -1,7 +1,7 @@
 import pandas as pd
 from rapidfuzz import process, fuzz
 import streamlit as st
-from openai import OpenAI
+import deepl
 import re
 
 # === Helpers ===
@@ -21,24 +21,17 @@ def fuzzy_match(guess, titles, title_map, slug_map, threshold=82):
         return title_map[match], slug_map[match], score, 'partial_ratio'
     return None, None, None, None
 
-def translate_with_openai(text, api_key):
-    client = OpenAI(api_key=api_key)
+def translate_with_deepl(text, api_key):
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{
-                "role": "user",
-                "content": f"Translate this product title from German to English: '{text}'"
-            }],
-            max_tokens=50
-        )
-        return response.choices[0].message.content.strip()
+        translator = deepl.Translator(api_key)
+        result = translator.translate_text(text, source_lang="DE", target_lang="EN-US")
+        return result.text
     except Exception as e:
         return f"TRANSLATION_FAILED: {e}"
 
-# === Session state ===
+# === Session setup ===
 st.set_page_config(layout="wide")
-st.title("🔁 Shopify Redirect Matching")
+st.title("🔁 Shopify Redirect Matcher (DeepL Version)")
 
 if "translated" not in st.session_state:
     st.session_state.translated = None
@@ -47,15 +40,15 @@ if "matched" not in st.session_state:
 if "manual_results" not in st.session_state:
     st.session_state.manual_results = []
 
-# === Step 1: Upload + OpenAI API Key ===
-st.header("Step 1: Upload Files and Add API Key")
+# === Step 1: Upload + API key ===
+st.header("Step 1: Upload Files and Add DeepL API Key")
 col1, col2 = st.columns(2)
 with col1:
     broken_file = st.file_uploader("Upload broken_links.csv", type="csv")
 with col2:
     product_file = st.file_uploader("Upload product_titles.csv", type="csv")
 
-api_key = st.text_input("🔑 Enter your OpenAI API key", type="password")
+api_key = st.text_input("🔑 Enter your DeepL API key", type="password")
 
 if broken_file and product_file and api_key:
     broken_df = pd.read_csv(broken_file)
@@ -63,14 +56,14 @@ if broken_file and product_file and api_key:
     st.success("✅ Files and API key loaded!")
 
     # === Step 2: Translate Slugs ===
-    st.header("Step 2: Translate German Slugs")
-    if st.button("Translate with OpenAI"):
+    st.header("Step 2: Translate German Slugs via DeepL")
+    if st.button("Translate Now"):
         broken_df['slug'] = broken_df['Redirect from'].str.extract(r'/de/products/(.*)')
         broken_df['clean_slug'] = broken_df['slug'].str.replace('-', ' ', regex=False)
 
         translated = []
         for idx, row in broken_df.iterrows():
-            result = translate_with_openai(row['clean_slug'], api_key)
+            result = translate_with_deepl(row['clean_slug'], api_key)
             translated.append(result)
             st.write(f"{idx + 1}: {row['clean_slug']} → {result}")
         broken_df['translated_guess'] = translated
