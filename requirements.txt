@@ -1,4 +1,4 @@
 streamlit
 pandas
 rapidfuzz
-openai
+openai>=1.0.0

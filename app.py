@@ -1,7 +1,7 @@
 import pandas as pd
 from rapidfuzz import process, fuzz
 import streamlit as st
-import openai
+from openai import OpenAI
 import re
 
 # === Helpers ===
@@ -22,21 +22,23 @@ def fuzzy_match(guess, titles, title_map, slug_map, threshold=82):
     return None, None, None, None
 
 def translate_with_openai(text, api_key):
-    openai.api_key = api_key
-    prompt = f"Translate this product title from German to English: '{text}'"
+    client = OpenAI(api_key=api_key)
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{
+                "role": "user",
+                "content": f"Translate this product title from German to English: '{text}'"
+            }],
             max_tokens=50
         )
-        return response['choices'][0]['message']['content'].strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"TRANSLATION_FAILED: {e}"
 
 # === Session state ===
 st.set_page_config(layout="wide")
-st.title("🔁 Shopify Redirect Matching (OpenAI Version)")
+st.title("🔁 Shopify Redirect Matching")
 
 if "translated" not in st.session_state:
     st.session_state.translated = None
