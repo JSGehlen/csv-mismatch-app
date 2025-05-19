@@ -1,7 +1,7 @@
 import pandas as pd
 from rapidfuzz import process, fuzz
-from googletrans import Translator
 import streamlit as st
+import openai
 import re
 
 # === Helpers ===
@@ -21,7 +21,23 @@ def fuzzy_match(guess, titles, title_map, slug_map, threshold=82):
         return title_map[match], slug_map[match], score, 'partial_ratio'
     return None, None, None, None
 
-# === Session state setup ===
+def translate_with_openai(text, api_key):
+    openai.api_key = api_key
+    prompt = f"Translate this product title from German to English: '{text}'"
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=50
+        )
+        return response['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        return f"TRANSLATION_FAILED: {e}"
+
+# === Session state ===
+st.set_page_config(layout="wide")
+st.title("🔁 Shopify Redirect Matching (OpenAI Version)")
+
 if "translated" not in st.session_state:
     st.session_state.translated = None
 if "matched" not in st.session_state:
@@ -29,57 +45,52 @@ if "matched" not in st.session_state:
 if "manual_results" not in st.session_state:
     st.session_state.manual_results = []
 
-# === Layout ===
-st.set_page_config(layout="wide")
-st.title("🔁 Shopify Redirect Matching Tool")
-
-# === Step 1: Upload files ===
-st.header("Step 1: Upload Your CSV Files")
+# === Step 1: Upload + OpenAI API Key ===
+st.header("Step 1: Upload Files and Add API Key")
 col1, col2 = st.columns(2)
 with col1:
-    broken_file = st.file_uploader("Upload broken_links.csv (from Google Search Console)", type="csv")
+    broken_file = st.file_uploader("Upload broken_links.csv", type="csv")
 with col2:
-    product_file = st.file_uploader("Upload product_titles.csv (title + slug)", type="csv")
+    product_file = st.file_uploader("Upload product_titles.csv", type="csv")
 
-if broken_file and product_file:
+api_key = st.text_input("🔑 Enter your OpenAI API key", type="password")
+
+if broken_file and product_file and api_key:
     broken_df = pd.read_csv(broken_file)
     product_df = pd.read_csv(product_file)
-    st.success("✅ Files uploaded successfully!")
+    st.success("✅ Files and API key loaded!")
 
-    # === Step 2: Translate ===
-    st.header("Step 2: Translate German Slugs → English")
-    if st.button("Translate Now"):
-        translator = Translator()
+    # === Step 2: Translate Slugs ===
+    st.header("Step 2: Translate German Slugs")
+    if st.button("Translate with OpenAI"):
         broken_df['slug'] = broken_df['Redirect from'].str.extract(r'/de/products/(.*)')
         broken_df['clean_slug'] = broken_df['slug'].str.replace('-', ' ', regex=False)
+
         translated = []
         for idx, row in broken_df.iterrows():
-            try:
-                translated_text = translator.translate(row['clean_slug'], src='de', dest='en').text
-            except Exception:
-                translated_text = "TRANSLATION_FAILED"
-            translated.append(translated_text)
+            result = translate_with_openai(row['clean_slug'], api_key)
+            translated.append(result)
+            st.write(f"{idx + 1}: {row['clean_slug']} → {result}")
         broken_df['translated_guess'] = translated
         st.session_state.translated = broken_df
-        st.success("✅ Translations complete")
+        st.success("✅ Translations completed.")
 
 # === Step 3: Match Translations ===
 if st.session_state.translated is not None:
     st.header("Step 3: Auto-Match Translated Titles")
 
-    # Normalize products
+    # Normalize product titles
     product_df['normalized_title'] = product_df['Product Title'].apply(normalize)
     title_map = dict(zip(product_df['normalized_title'], product_df['Product Title']))
     slug_map = dict(zip(product_df['normalized_title'], product_df['Product URL slug']))
     titles = list(title_map.keys())
 
-    matches = []
-    unmatched = []
+    matches, unmatched = [], []
 
     for _, row in st.session_state.translated.iterrows():
         guess = row['translated_guess']
         redirect_from = row['Redirect from']
-        if guess == "TRANSLATION_FAILED":
+        if guess.startswith("TRANSLATION_FAILED"):
             unmatched.append(row)
             continue
         title, slug, score, method = fuzzy_match(guess, titles, title_map, slug_map)
@@ -103,7 +114,7 @@ if st.session_state.translated is not None:
 
 # === Step 4: Manual Review ===
 if st.session_state.matched is not None:
-    st.header("Step 4: Manual Review of Unmatched Items")
+    st.header("Step 4: Manual Review of Unmatched")
 
     unmatched_df = st.session_state.matched["unmatched"]
     max_index = len(unmatched_df)
@@ -141,9 +152,9 @@ if st.session_state.matched is not None:
     else:
         st.success("✅ Manual review complete!")
 
-# === Step 5: Download Merged Redirects ===
+# === Step 5: Export Final Redirect File ===
 if st.session_state.matched is not None:
-    st.header("Step 5: Export Final Redirect File")
+    st.header("Step 5: Download All Redirects")
 
     final = st.session_state.matched["final"]
     manual = pd.DataFrame(st.session_state.manual_results)
