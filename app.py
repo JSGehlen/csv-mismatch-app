@@ -175,14 +175,14 @@ if st.session_state.matched is not None:
         choice = st.radio("Select a match or skip:", options + ["❌ Skip this one"])
 
         if st.button("Save & Next"):
-            if choice != "❌ Skip this one":
-                slug = choice.split("→")[-1].split("(")[0].strip()
-                st.session_state.manual_results.append({
-                    "Redirect from": redirect_from,
-                    "Redirect to": slug
-                })
-            st.session_state.manual_index += 1
-            st.experimental_rerun()
+          if choice != "❌ Skip this one":
+              slug = choice.split("→")[-1].split("(")[0].strip()
+              st.session_state.manual_results.append({
+                  "Redirect from": redirect_from,
+                  "Redirect to": slug
+              })
+          st.session_state.manual_index += 1
+          st.rerun()
     else:
         st.success("✅ Manual review complete!")
 
