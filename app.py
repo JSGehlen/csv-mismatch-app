@@ -29,22 +29,25 @@ def translate_with_deepl(text, api_key):
     except Exception as e:
         return f"TRANSLATION_FAILED: {e}"
 
-# === Session setup ===
+# === Session state defaults ===
 st.set_page_config(layout="wide")
 st.title("🔁 Shopify Redirect Matcher (DeepL Version)")
 
-if "match_complete" not in st.session_state:
-    st.session_state.match_complete = False
+for key, default in {
+    "match_complete": False,
+    "translated": None,
+    "matched": None,
+    "manual_results": [],
+    "manual_index": 0,
+    "title_map": None,
+    "slug_map": None,
+    "titles": None,
+    "final_redirect_csv": None
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
-if "translated" not in st.session_state:
-    st.session_state.translated = None
-if "matched" not in st.session_state:
-    st.session_state.matched = None
-if "manual_results" not in st.session_state:
-    st.session_state.manual_results = []
-
-
-# === Step 1: Upload + API key ===
+# === Step 1: Upload ===
 st.header("Step 1: Upload Files and Add DeepL API Key")
 col1, col2 = st.columns(2)
 with col1:
@@ -59,7 +62,7 @@ if broken_file and product_file and api_key:
     product_df = pd.read_csv(product_file)
     st.success("✅ Files and API key loaded!")
 
-    # === Step 2: Translate Slugs ===
+    # === Step 2: Translate ===
     st.header("Step 2: Translate German Slugs via DeepL")
     if st.button("Translate Now"):
         broken_df['slug'] = broken_df['Redirect from'].str.extract(r'/de/products/(.*)')
@@ -94,7 +97,7 @@ if broken_file and product_file and api_key:
         st.subheader("📄 Sample Translations:")
         st.dataframe(broken_df[["clean_slug", "translated_guess"]].head(10))
 
-# === Step 3: Match Translations ===
+# === Step 3: Match Translations (once) ===
 if st.session_state.translated is not None and not st.session_state.match_complete:
     st.header("Step 3: Auto-Match Translated Titles")
 
@@ -136,6 +139,9 @@ if st.session_state.translated is not None and not st.session_state.match_comple
         "unmatched": unmatched_df
     }
     st.session_state.match_complete = True
+    st.session_state.title_map = title_map
+    st.session_state.slug_map = slug_map
+    st.session_state.titles = titles
 
     st.success(f"✅ Matched {len(matches)} | ❌ Unmatched: {len(unmatched)}")
 
@@ -145,10 +151,6 @@ if st.session_state.matched is not None:
 
     unmatched_df = st.session_state.matched["unmatched"]
     max_index = len(unmatched_df)
-
-    if "manual_index" not in st.session_state:
-        st.session_state.manual_index = 0
-
     idx = st.session_state.manual_index
 
     if idx < max_index:
@@ -157,12 +159,17 @@ if st.session_state.matched is not None:
         redirect_from = row['Redirect from']
 
         st.subheader(f"🔍 {idx + 1}/{max_index}: {row['translated_guess']}")
-        top_matches = process.extract(guess, titles, scorer=fuzz.token_set_ratio, limit=3)
+        top_matches = process.extract(
+            guess,
+            st.session_state.titles,
+            scorer=fuzz.token_set_ratio,
+            limit=3
+        )
 
         options = []
         for title_norm, score, _ in top_matches:
-            title = title_map[title_norm]
-            slug = slug_map[title_norm]
+            title = st.session_state.title_map[title_norm]
+            slug = st.session_state.slug_map[title_norm]
             options.append(f"{title} → {slug} (score: {score})")
 
         choice = st.radio("Select a match or skip:", options + ["❌ Skip this one"])
@@ -179,13 +186,20 @@ if st.session_state.matched is not None:
     else:
         st.success("✅ Manual review complete!")
 
-# === Step 5: Export Final Redirect File ===
+# === Step 5: Export ===
 if st.session_state.matched is not None:
     st.header("Step 5: Download All Redirects")
 
-    final = st.session_state.matched["final"]
-    manual = pd.DataFrame(st.session_state.manual_results)
-    merged = pd.concat([final[["Redirect from", "Redirect to"]], manual], ignore_index=True)
-    merged = merged.drop_duplicates(subset=["Redirect from"])
+    if st.session_state.final_redirect_csv is None:
+        final = st.session_state.matched["final"]
+        manual = pd.DataFrame(st.session_state.manual_results)
+        merged = pd.concat([final[["Redirect from", "Redirect to"]], manual], ignore_index=True)
+        merged = merged.drop_duplicates(subset=["Redirect from"])
+        st.session_state.final_redirect_csv = merged.to_csv(index=False).encode("utf-8")
 
-    st.download_button("⬇️ Download all_redirects.csv", merged.to_csv(index=False), file_name="all_redirects.csv")
+    st.download_button(
+        label="⬇️ Download all_redirects.csv",
+        data=st.session_state.final_redirect_csv,
+        file_name="all_redirects.csv",
+        mime="text/csv"
+    )
