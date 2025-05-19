@@ -62,21 +62,31 @@ if broken_file and product_file and api_key:
         broken_df['clean_slug'] = broken_df['slug'].str.replace('-', ' ', regex=False)
 
         translated = []
-        progress = st.progress(0, text="🔁 Translating product slugs…")
+        failed = []
+        status = st.empty()
+        progress = st.progress(0)
 
         for idx, row in broken_df.iterrows():
             result = translate_with_deepl(row['clean_slug'], api_key)
             translated.append(result)
 
             if result.startswith("TRANSLATION_FAILED"):
-                st.warning(f"⚠️ {idx + 1}: {row['clean_slug']} → {result}")
+                failed.append((idx, row['clean_slug'], result))
 
+            status.text(f"🔁 Translating: {idx + 1} / {len(broken_df)}")
             progress.progress((idx + 1) / len(broken_df))
 
         broken_df['translated_guess'] = translated
         st.session_state.translated = broken_df
 
+        status.text("✅ Translation complete!")
         st.success("✅ Translations completed.")
+
+        if failed:
+            st.warning(f"⚠️ {len(failed)} translations failed. Showing up to 5:")
+            for i, slug, err in failed[:5]:
+                st.text(f"{i + 1}: {slug} → {err}")
+
         st.subheader("📄 Sample Translations:")
         st.dataframe(broken_df[["clean_slug", "translated_guess"]].head(10))
 
@@ -91,6 +101,7 @@ if st.session_state.translated is not None:
 
     matches, unmatched = [], []
     progress = st.progress(0, text="🔍 Matching translated titles...")
+    status = st.empty()
 
     for idx, row in st.session_state.translated.iterrows():
         guess = row['translated_guess']
@@ -110,6 +121,7 @@ if st.session_state.translated is not None:
         else:
             unmatched.append(row)
 
+        status.text(f"🔍 Matching: {idx + 1} / {len(st.session_state.translated)}")
         progress.progress((idx + 1) / len(st.session_state.translated))
 
     unmatched_df = pd.DataFrame(unmatched)
