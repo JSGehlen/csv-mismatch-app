@@ -62,27 +62,37 @@ if broken_file and product_file and api_key:
         broken_df['clean_slug'] = broken_df['slug'].str.replace('-', ' ', regex=False)
 
         translated = []
+        progress = st.progress(0, text="🔁 Translating product slugs…")
+
         for idx, row in broken_df.iterrows():
             result = translate_with_deepl(row['clean_slug'], api_key)
             translated.append(result)
-            st.write(f"{idx + 1}: {row['clean_slug']} → {result}")
+
+            if result.startswith("TRANSLATION_FAILED"):
+                st.warning(f"⚠️ {idx + 1}: {row['clean_slug']} → {result}")
+
+            progress.progress((idx + 1) / len(broken_df))
+
         broken_df['translated_guess'] = translated
         st.session_state.translated = broken_df
+
         st.success("✅ Translations completed.")
+        st.subheader("📄 Sample Translations:")
+        st.dataframe(broken_df[["clean_slug", "translated_guess"]].head(10))
 
 # === Step 3: Match Translations ===
 if st.session_state.translated is not None:
     st.header("Step 3: Auto-Match Translated Titles")
 
-    # Normalize product titles
     product_df['normalized_title'] = product_df['Product Title'].apply(normalize)
     title_map = dict(zip(product_df['normalized_title'], product_df['Product Title']))
     slug_map = dict(zip(product_df['normalized_title'], product_df['Product URL slug']))
     titles = list(title_map.keys())
 
     matches, unmatched = [], []
+    progress = st.progress(0, text="🔍 Matching translated titles...")
 
-    for _, row in st.session_state.translated.iterrows():
+    for idx, row in st.session_state.translated.iterrows():
         guess = row['translated_guess']
         redirect_from = row['Redirect from']
         if guess.startswith("TRANSLATION_FAILED"):
@@ -100,9 +110,13 @@ if st.session_state.translated is not None:
         else:
             unmatched.append(row)
 
+        progress.progress((idx + 1) / len(st.session_state.translated))
+
+    unmatched_df = pd.DataFrame(unmatched)
+    unmatched_df.columns = [col.strip() for col in unmatched_df.columns]
     st.session_state.matched = {
         "final": pd.DataFrame(matches),
-        "unmatched": pd.DataFrame(unmatched)
+        "unmatched": unmatched_df
     }
 
     st.success(f"✅ Matched {len(matches)} | ❌ Unmatched: {len(unmatched)}")
@@ -122,7 +136,7 @@ if st.session_state.matched is not None:
     if idx < max_index:
         row = unmatched_df.iloc[idx]
         guess = normalize(row['translated_guess'])
-        redirect_from = row['redirect_from']
+        redirect_from = row['Redirect from']
 
         st.subheader(f"🔍 {idx + 1}/{max_index}: {row['translated_guess']}")
         top_matches = process.extract(guess, titles, scorer=fuzz.token_set_ratio, limit=3)
